@@ -301,11 +301,11 @@ jobs:
 
           # Get workspace details
           WORKSPACE_DATA=$(curl -s \
-            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            --header "Authorization: Bearer ${{ env.TF_API_TOKEN }}" \
             --header "Content-Type: application/vnd.api+json" \
             "https://app.terraform.io/api/v2/organizations/${{ env.TF_CLOUD_ORGANIZATION }}/workspaces/${{ env.TF_WORKSPACE }}")
 
-          AUTO_APPLY=$(echo "$WORKSPACE_DATA" | jq -r '.data.attributes."auto-apply"')
+          AUTO_APPLY=$(echo "$WORKSPACE_DATA" | jq -r '.data.attributes."auto-apply" // empty')
 
           echo "Workspace auto-apply setting: $AUTO_APPLY"
 
@@ -338,7 +338,7 @@ jobs:
           tfc_api_call() {
             local endpoint=$1
             curl -s \
-              --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+              --header "Authorization: Bearer ${{ env.TF_API_TOKEN }}" \
               --header "Content-Type: application/vnd.api+json" \
               "https://app.terraform.io/api/v2${endpoint}"
           }
