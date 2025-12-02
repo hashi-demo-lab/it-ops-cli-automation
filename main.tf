@@ -11,14 +11,14 @@ terraform {
     }
   }
 
-  cloud {
-    hostname     = "app.terraform.io"
-    organization = "cloudbrokeraz"
+  # cloud {
+  #   hostname     = "app.terraform.io"
+  #   organization = "cloudbrokeraz"
 
-    workspaces {
-      name = "it-ops-cli-automation"
-    }
-  }
+  #   workspaces {
+  #     name = "it-ops-cli-automation"
+  #   }
+  # }
 }
 
 variable "bu_projects" {
