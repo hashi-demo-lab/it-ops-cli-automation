@@ -48,21 +48,29 @@ jobs:
 
           # Get workspace ID first
           WORKSPACE_DATA=$(curl -s \
-            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            --header "Authorization: Bearer ${{ env.TF_API_TOKEN }}" \
             --header "Content-Type: application/vnd.api+json" \
             "https://app.terraform.io/api/v2/organizations/${{ env.TF_CLOUD_ORGANIZATION }}/workspaces/${{ env.TF_WORKSPACE }}")
 
-          WORKSPACE_ID=$(echo "$WORKSPACE_DATA" | jq -r '.data.id')
+          WORKSPACE_ID=$(echo "$WORKSPACE_DATA" | jq -r '.data.id // empty')
+
+          # Validate workspace ID was retrieved
+          if [[ -z "$WORKSPACE_ID" || "$WORKSPACE_ID" == "null" ]]; then
+            echo "::warning::⚠️ Could not retrieve workspace ID - API may have failed"
+            echo "This could indicate authentication issues or invalid workspace name."
+            echo "Skipping concurrent run check..."
+            exit 0
+          fi
 
           # Get current runs for this workspace
           RUNS_DATA=$(curl -s \
-            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            --header "Authorization: Bearer ${{ env.TF_API_TOKEN }}" \
             --header "Content-Type: application/vnd.api+json" \
             "https://app.terraform.io/api/v2/workspaces/$WORKSPACE_ID/runs?page%5Bsize%5D=5")
 
           # Check for runs in active states (not completed/errored/canceled/discarded)
           ACTIVE_RUNS=$(echo "$RUNS_DATA" | jq -r '
-            [.data[] | select(
+            [(.data // [])[] | select(
               .attributes.status != "applied" and
               .attributes.status != "discarded" and
               .attributes.status != "canceled" and
@@ -80,7 +88,7 @@ jobs:
 
             # Show details of active runs
             echo "$RUNS_DATA" | jq -r '
-              .data[] | select(
+              (.data // [])[] | select(
                 .attributes.status != "applied" and
                 .attributes.status != "discarded" and
                 .attributes.status != "canceled" and
@@ -178,12 +186,12 @@ jobs:
 
           # Step 1: Get task stages for this run
           TASK_STAGES=$(curl -s \
-            --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+            --header "Authorization: Bearer ${{ env.TF_API_TOKEN }}" \
             --header "Content-Type: application/vnd.api+json" \
             "https://app.terraform.io/api/v2/runs/${{ steps.create-run.outputs.run_id }}/task-stages")
 
-          # Find task stages with policy evaluations
-          POLICY_STAGE_IDS=$(echo "$TASK_STAGES" | jq -r '.data[] | select(.relationships."policy-evaluations".data != null and (.relationships."policy-evaluations".data | length) > 0) | .id')
+          # Find task stages with policy evaluations (with null-safety)
+          POLICY_STAGE_IDS=$(echo "$TASK_STAGES" | jq -r '(.data // [])[] | select(.relationships."policy-evaluations".data != null and (.relationships."policy-evaluations".data | length) > 0) | .id')
 
           if [ -z "$POLICY_STAGE_IDS" ]; then
             echo "ℹ️  No Sentinel policy evaluations configured for this workspace"
@@ -205,19 +213,19 @@ jobs:
 
           for STAGE_ID in $POLICY_STAGE_IDS; do
             POLICY_EVALS=$(curl -s \
-              --header "Authorization: Bearer ${{ secrets.TF_API_TOKEN }}" \
+              --header "Authorization: Bearer ${{ env.TF_API_TOKEN }}" \
               --header "Content-Type: application/vnd.api+json" \
               "https://app.terraform.io/api/v2/task-stages/$STAGE_ID/policy-evaluations")
 
-            # Parse evaluation results
-            echo "$POLICY_EVALS" | jq -r '.data[] | "📋 Policy Evaluation: \(.id)\n   Status: \(.attributes.status)\n   Policy Engine: \(.attributes."policy-kind")\n   Results:\n     • Passed: \(.attributes."result-count".passed)\n     • Advisory Failed: \(.attributes."result-count"."advisory-failed")\n     • Mandatory Failed: \(.attributes."result-count"."mandatory-failed")\n     • Errored: \(.attributes."result-count".errored)\n"'
+            # Parse evaluation results (with null-safety)
+            echo "$POLICY_EVALS" | jq -r '(.data // [])[] | "📋 Policy Evaluation: \(.id)\n   Status: \(.attributes.status)\n   Policy Engine: \(.attributes."policy-kind")\n   Results:\n     • Passed: \(.attributes."result-count".passed)\n     • Advisory Failed: \(.attributes."result-count"."advisory-failed")\n     • Mandatory Failed: \(.attributes."result-count"."mandatory-failed")\n     • Errored: \(.attributes."result-count".errored)\n"'
 
-            # Aggregate counts separately by type
-            EVAL_COUNT=$(echo "$POLICY_EVALS" | jq -r '.data | length')
-            PASSED=$(echo "$POLICY_EVALS" | jq -r '[.data[].attributes."result-count".passed] | add // 0')
-            ADV_FAILED=$(echo "$POLICY_EVALS" | jq -r '[.data[].attributes."result-count"."advisory-failed"] | add // 0')
-            MAND_FAILED=$(echo "$POLICY_EVALS" | jq -r '[.data[].attributes."result-count"."mandatory-failed"] | add // 0')
-            ERRORED=$(echo "$POLICY_EVALS" | jq -r '[.data[].attributes."result-count".errored] | add // 0')
+            # Aggregate counts separately by type (with null-safety)
+            EVAL_COUNT=$(echo "$POLICY_EVALS" | jq -r '(.data // []) | length')
+            PASSED=$(echo "$POLICY_EVALS" | jq -r '[(.data // [])[].attributes."result-count".passed] | add // 0')
+            ADV_FAILED=$(echo "$POLICY_EVALS" | jq -r '[(.data // [])[].attributes."result-count"."advisory-failed"] | add // 0')
+            MAND_FAILED=$(echo "$POLICY_EVALS" | jq -r '[(.data // [])[].attributes."result-count"."mandatory-failed"] | add // 0')
+            ERRORED=$(echo "$POLICY_EVALS" | jq -r '[(.data // [])[].attributes."result-count".errored] | add // 0')
 
             TOTAL_EVALUATIONS=$((TOTAL_EVALUATIONS + EVAL_COUNT))
             TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
